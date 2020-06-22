@@ -74,7 +74,7 @@ get_header("games");
                     echo '<br><div id="form">';
                     echo '<form method="post" action="'.htmlspecialchars($_SERVER["REQUEST_URI"]).'" enctype="multipart/form-data">';
     
-                    //display the player's score
+                    //hold the player's score in a hidden field
                     echo '<input type="hidden" id="score_field" name="score_field" placeholder="0">';
     
                     //display the player's name
@@ -118,4 +118,4 @@ get_header("games");
 </div>
 <?php get_footer(); ?>
 
-<script type="text/javascript" src="//gopins.co.uk/games/weedlegame/weedlegame2_1.js"></script>
+<script type="text/javascript" src="//gopins.co.uk/weedlegame/weedlegame2_3.js"></script>
