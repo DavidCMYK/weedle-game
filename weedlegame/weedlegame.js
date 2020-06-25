@@ -1,7 +1,7 @@
 var config = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 400,
+    width: 1400,
+    height: 600,
     parent: 'game_div',
     physics: {
         default: 'arcade',
@@ -19,13 +19,18 @@ var config = {
 
 var game = new Phaser.Game(config);
 
+//mob groups
 var player;
 var pidgeys;
 var magikarps;
+var geodudes;
 
 //image and terrain groups
 var skies;
-var platforms;
+var bottomLedges;
+var otherLedges;
+var arrLedges = {};
+var ledgeCount = 0;
 var backGrasses;
 var frontGrasses;
 var Leaves;
@@ -44,20 +49,23 @@ var gameOver = false;
 var scoreText;
 var moveRight, moveLeft, moveUp, moveDown;
 var gameCanvas;
+var initialCanvasHeight;
+var prevHeight;
 var mainCamera;
-
-
-var WorldWidth = 10000;
-var minBiomeLength = 400;
-
-var testvar;
-var platformCollider;
+var ledgeCollider;
 var initialSpawnCheck;
-var errText;
-var yVel;
 
+//dials
+var worldWidth = 20000;
+var minBiomeLength = 400;
+var worldHeight = 600;
+var worldLayers = 9;
+var layerHeight = Math.floor(worldHeight/worldLayers)-1;
+var maxScreenWidth = 1400;
+
+//biomes
 var Biome;
-var treeHeight, lowestBranch, branchLength, treeDensity, ledgeHigh, ledgeLow, ledgeLength, ledgeDensity, rampFreq;
+var treeHeight, lowestBranch, branchLength, treeDensity, ledgeHigh, ledgeLow, ledgeLength, ledgeDensity, solidGround;
 var biomeSky;
 
 function preload ()
@@ -86,7 +94,8 @@ function preload ()
 
     this.load.image('platform', 'weedlegame/assets/branch1.png');
     this.load.image('soil', 'weedlegame/assets/soil.png');
-    this.load.spritesheet('water', 'weedlegame/assets/water.png', { frameWidth: 30, frameHeight: 20 });
+
+    this.load.spritesheet('water', 'weedlegame/assets/water.png', { frameWidth: 40, frameHeight: 20 });
 
     this.load.image('pokeball', 'weedlegame/assets/pokeball.png');
     this.load.image('bomb', 'assets/bomb.png');
@@ -96,6 +105,7 @@ function preload ()
 
     this.load.spritesheet('pidgey', 'weedlegame/assets/pidgey.png', { frameWidth:73, frameHeight: 55 });
     this.load.spritesheet('magikarp', 'weedlegame/assets/magikarp.png', { frameWidth:93, frameHeight: 77 });
+    this.load.spritesheet('geodude', 'weedlegame/assets/geodude.png', { frameWidth:85, frameHeight: 32 });
 
     this.load.image('gameover', 'weedlegame/assets/gameover.png');
 
@@ -103,39 +113,67 @@ function preload ()
 
 function create ()
 {
-    //Add cameras
-    mainCamera = this.cameras.main;
-    mainCamera.setSize(800, 400);
-    mainCamera.setBounds(0, 0, WorldWidth, 600);
-    mainCamera.roundPixels = true;
+    //game canvas object
+    gameCanvas = document.getElementsByTagName("canvas")[0];
+
+    initialCanvasHeight = gameCanvas.height;
+
+    //set canvas to fill screen 
+    if (window.innerHeight > worldHeight)
+    {
+        gameCanvas.height = worldHeight;
+    }
+    else{
+        gameCanvas.height = window.innerHeight;
+    }
+    if (window.innerWidth > maxScreenWidth)
+    {
+        gameCanvas.width = maxScreenWidth;
+    }
+    else
+    {
+        gameCanvas.width = window.innerWidth;
+    }
+    gameCanvas.scrollIntoView(true);
+    prevHeight = gameCanvas.height;
 
     //event listeners for touch controls
-    gameCanvas = document.getElementsByTagName("canvas")[0];
     gameCanvas.addEventListener("touchstart", handleTouch, false);
     gameCanvas.addEventListener("touchmove", handleTouch, false);
     gameCanvas.addEventListener("touchend", handleEnd, false);
     gameCanvas.addEventListener("touchcancel", handleEnd, false);
+    
+    //  Keyboard input Events
+    cursors = this.input.keyboard.createCursorKeys();
+    
+    //Add camera
+    mainCamera = this.cameras.main;
+    mainCamera.setSize(gameCanvas.width, gameCanvas.height);
+    mainCamera.setBounds(0, 0, worldWidth, 600);
+    mainCamera.setPosition(0,initialCanvasHeight-gameCanvas.height);
+    mainCamera.roundPixels = true;
 
-    //  The platforms group contains the ground and the 2 ledges we can jump on
-    platforms = this.physics.add.staticGroup();
+    //  The bottomLedges group contains the ground at the bottom of the screen
+    //in a separate group as collisions are handled differently
+    bottomLedges = this.physics.add.staticGroup();
 
+    //The otherLedges group contains the ground ledges except the bottom one
+    otherLedges = this.physics.add.staticGroup();
+
+    //groups to hold game objects
     backGrasses = this.add.group();
     frontGrasses = this.add.group();
     soils = this.add.group();
     waters = this.physics.add.staticGroup();
-    
     skies = this.add.group();
-
     branches = this.physics.add.staticGroup();
     Leaves = this.physics.add.staticGroup();
     trunks = this.physics.add.staticGroup();
-
     pokeballs = this.physics.add.group();
     berries = this.physics.add.staticGroup();
-
     pidgeys = this.physics.add.group();
     magikarps = this.physics.add.group();
-
+    geodudes = this.physics.add.group();
 
     var biomeStart = 0;
     var xLedge = 0;
@@ -145,32 +183,57 @@ function create ()
     var prev2Y = 0;
 
     //create a starting ledge
-    createLedge(15,7*65,20);
+    addLedge(15,7,3);
     // place weedle on the first ledge
-    player = this.physics.add.sprite(15, 7*65-40, 'weedle');
+    player = this.physics.add.sprite(20, 7*layerHeight-40, 'weedle');
 
     //Define sections of the world as unique biomes
-    while (biomeStart < WorldWidth)
+    while (biomeStart < worldWidth)
     {
-        biomeLength = minBiomeLength + Math.round(Math.random() * WorldWidth / 4);
+        biomeLength = minBiomeLength + Math.round(Math.random() * worldWidth / 4);
         Biome = getBiome();
 
-        //  Create ledges which can be climbed
+        //create one ledge which runs across the bottom of the screen, except in Islands biomes
+        if (solidGround)
+        {
+            addLedge(biomeStart, 9, biomeLength/30);
+        }
+        else
+        {
+            //create water where there's no land
+            for (i=0; i<biomeLength/30; i++)
+            {
+                waterX = biomeStart + i*30;
+                waters.create(waterX, worldHeight-10, 'water');
+                //randomly spawn magikarp
+                if (i>3 && Math.random() < 0.05)
+                {
+                    magikarps.create(waterX, 300+Math.random()*240, 'magikarp');
+                }
+            }
+        }
 
         //set the positions for the ledges and load the background images
         for (ledgeNo=0; ledgeNo<ledgeDensity*biomeLength/400; ledgeNo++)
         {
             //set the starting point of the next ledge
-            xLedge = biomeStart + Math.random() * biomeLength;
-            yLedge = Math.round(ledgeHigh + (Math.random() * (ledgeLow - ledgeHigh))) * 65;
-
+            xLedge = Math.floor(biomeStart + Math.random() * biomeLength);
+            yLedge = Math.floor(ledgeHigh + Math.round(Math.random() * (ledgeLow - ledgeHigh))) * (layerHeight); //the bottom ledge should be slightly above ground/water
+            ledgeLayer = ledgeHigh + Math.round(Math.random() * (ledgeLow - ledgeHigh));
+            
             thisLedgeLength = Math.random() * ledgeLength * 2; //number of segments in the current platform
             
-            //Create a ledge
-            createLedge(xLedge, yLedge, thisLedgeLength);
+            //Create a ledge. Ledge positions are held in the arrLedges object for pre-processing before adding to the game world
+            addLedge(xLedge, ledgeLayer, thisLedgeLength);
+
+            //add Geodudes to Hill biomes
+            if (Biome=='Hills' && Math.random() < 0.1 && xLedge > 200)
+            {
+                createGeodude(xLedge, yLedge - 30);
+            }
         }
 
-        //  Now let's create some trees
+        //  Add trees
         for (treeNo=0; treeNo<treeDensity * biomeLength / 400; treeNo++)
         {
             //set the position of the tree trunk
@@ -178,7 +241,7 @@ function create ()
 
             //set the tree height
             thisTreeHeight = treeHeight + Math.round((lowestBranch-treeHeight) * Math.random())
-            yTree = thisTreeHeight * 65;
+            yTree = thisTreeHeight * layerHeight;
 
             //create the trunk
             trunks.create(xTree, yTree+416, 'trunk' + Math.round((Math.random()*2) +1));
@@ -189,19 +252,14 @@ function create ()
                 //set the length of the branch
                 if (i==treeHeight)
                 {
-                    thisBranchLength = Math.round(Math.random() * branchLength) +1;
+                    thisBranchLength = Math.round(Math.random() * branchLength) +1; //no 0-length branches for tree-tops
                 } else {
                     thisBranchLength = Math.round(Math.random() * branchLength);
                 }
                
                 //set starting point of branch
-                //if (Math.random() > 0.5)
-                //{
-                //    xBranch = xTree;
-                //} else {
-                    xBranch = xTree - thisBranchLength * 30 / 2;
-                //}
-                yBranch = (i) * 65;
+                xBranch = xTree - thisBranchLength * 30 / 2;
+                yBranch = (i) * layerHeight;
 
                 //create branch segments
                 for (j=0; j<=thisBranchLength; j++)
@@ -209,7 +267,7 @@ function create ()
                     branches.create(xBranch, yBranch, 'platform');
                     
                     //add leaves
-                    Leaves.create(xBranch, yBranch, 'leaves' + Math.round((Math.random()*2) +1));
+                    Leaves.create(xBranch, yBranch + (Math.random()*20-10), 'leaves' + Math.round((Math.random()*2) +1));
 
                     //Add berries
                     if (Math.random() < 0.03)
@@ -225,179 +283,166 @@ function create ()
         //  Add the sky to the background
         for (i=0; i<biomeLength/400; i++)
         {
-            skies.create(biomeStart + 400 * i, 300, biomeSky)
+            skies.create(biomeStart + 400 * i, 300, biomeSky);
 
             //add pidgeys in the clear skies
             if (Biome!='Forest' && Math.random()<0.2)
             {
-                if (biomeStart + 400 * i > 400) {
-                    createPidgey(biomeStart + 400 * i,Math.random()*300);
+                if (biomeStart < 400)
+                {
+                    
+                    createPidgey(biomeStart + 400 + 100 * i,Math.random()*ledgeHigh*layerHeight);
+                } else {
+                    createPidgey(biomeStart + 100 + 400 * i,Math.random()*ledgeHigh*layerHeight);
+                }
+            }
+        }
+        //the start of the next biome is the end of this one
+        biomeStart = biomeStart + biomeLength;
+    }
+
+    //check for any impossible gaps between islands
+    var nextLedge = {};
+    var jumpDistance;
+
+    //iterate through all existing ledges
+    Object.keys(arrLedges).forEach((key, index) => {
+        ledgeX = arrLedges[key]['x'];
+        ledgeLayer = arrLedges[key]['layer'];
+
+        //search ahead from the current ledge to find the next reachable one
+
+        currentX = ledgeX + 1;
+        ledgeFound = false
+
+        if (currentX < worldWidth) //stop when the end of the world is reached
+        {
+            while (!ledgeFound && currentX < worldWidth) //stop when the next reachable ledge is found
+            {
+                for (j = ledgeLayer - 1; j <= worldLayers; j++) //reachable is defined as a ledge no more than 1 level higher than the current one
+                {
+                    if (arrLedges[currentX + ':' + j])//check if a ledge exists at each possible coordinate set right of the current
+                    {
+                        ledgeFound = true;
+                        nextLedge = arrLedges[currentX + ':' + j];
+                    }
+                }
+                if (!ledgeFound)
+                {
+                    //if no ledge found at this x, move on
+                    currentX++;
                 }
             }
         }
 
-        //add magikarp to the water around islands
-        if (Biome == 'Islands')
+        //create a bridging ledge if needed
+        if (nextLedge) //don't crash if no nextLedge (e.g. at end of world)
         {
-            while (i<biomeLength)
+            jumpDistance = 200 + (nextLedge['layer']-ledgeLayer) * 50; // rough estimate of how far player can jump
+            if (nextLedge['x'] - ledgeX > jumpDistance) //if the next reachable ledge is too far to jump
             {
-                i += 300 + Math.random()*240;
-                magikarps.create(biomeStart+i, 300+Math.random()*240, 'magikarp');
+                addLedge(ledgeX + jumpDistance, ledgeLayer, Math.max(Math.ceil((nextLedge['x']-ledgeX-jumpDistance*2)/30),1));
             }
         }
+    })
 
-        biomeStart = biomeStart + biomeLength;
-    }
-
-    //  Here we create the water.
-    for (i=0; i<WorldWidth; i=i+30)
+    //put all of the ledges into the world
+    for (currentLayer = 0; currentLayer <= worldLayers; currentLayer++)
     {
-        waters.create(i, 590, 'water');
+        Object.keys(arrLedges).forEach((key, index) => {
+            if (key.includes(':'+currentLayer.toString(), 1))
+            {
+                createLedge(arrLedges[key]['x'], arrLedges[key]['layer']*layerHeight);
+            }
+        })
     }
-    this.anims.create({
-        key: 'watermove',
-        frames: this.anims.generateFrameNumbers('water', { start: 0, end: 1 }),
-        frameRate: 5,
-        repeat: -1
-    });
 
-    //The score
+    //Display the score
     scoreText = this.add.text(16, 16, '0', { fontSize: '32px', fill: '#FFF' });
 
     //Set the depth for each set of objects
-    startDepth = 0;
-    skies.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    trunks.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    soils.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    platforms.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    backGrasses.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
+    setDepth(skies,0);
+    setDepth(trunks,1);
+    setDepth(soils,2);
+    setDepth(otherLedges,3);
+    setDepth(bottomLedges,4);
+    setDepth(backGrasses,5);
 
     //insert the player into this layer
-    try {
-        player.depth = startDepth;
-        startDepth++;
-    }catch{}
+    player.depth = 6;
 
-    //enemies here
-    pidgeys.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-
+    // land enemies here
+    setDepth(geodudes,7);
+    setDepth(pidgeys,8);
 
     //Collectables here
-    pokeballs.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-
+    setDepth(pokeballs,9);
  
-    branches.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    frontGrasses.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    berries.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    Leaves.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
-    magikarps.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
+    setDepth(branches,10);
+    setDepth(frontGrasses,11);
+    setDepth(berries,12);
 
-    waters.children.iterate(function (child) {
-        child.depth = startDepth;
-        startDepth++;
-    });
+    //player will be at depth 13 when jumping/dropping
+
+    setDepth(Leaves,14);
+
+    setDepth(magikarps,15);
+
+    setDepth(waters,16);
 
     //text objects on top
-    scoreText.depth = startDepth;
-    startDepth++;
+    scoreText.depth = 17;
 
-
-
+    //camera follows player
     mainCamera.startFollow(player);
-
-
-    //  Our player animations, turning, walking left and walking right.
+    
+    //  Create the player animations
     this.anims.create({
         key: 'leftdown',
         frames: this.anims.generateFrameNumbers('weedle', { start: 0, end: 3 }),
         frameRate: 10,
         repeat: -1
     });
-
     this.anims.create({
         key: 'leftup',
         frames: this.anims.generateFrameNumbers('weedle', { start: 9, end: 12 }),
         frameRate: 10,
         repeat: -1
     });
-
     this.anims.create({
         key: 'leftair',
         frames: this.anims.generateFrameNumbers('weedleair', { start: 0, end: 2 }),
         frameRate: 10,
         repeat: -1
     });
-
-
     this.anims.create({
         key: 'standdown',
         frames: [ { key: 'weedletall', frame: 0 } ],
         frameRate: 20
     });
-
     this.anims.create({
         key: 'standup',
         frames: [ { key: 'weedletall', frame: 1 } ],
         frameRate: 20
     });
-
     this.anims.create({
         key: 'standair',
         frames: this.anims.generateFrameNumbers('weedleair', { start: 3, end: 5 }),
         frameRate: 10,
         repeat: -1
     });
-
     this.anims.create({
         key: 'rightdown',
         frames: this.anims.generateFrameNumbers('weedle', { start: 5, end: 8 }),
         frameRate: 10,
         repeat: -1
     });
-
     this.anims.create({
         key: 'rightup',
         frames: this.anims.generateFrameNumbers('weedle', { start: 14, end: 17 }),
         frameRate: 10,
         repeat: -1
     });
-
     this.anims.create({
         key: 'rightair',
         frames: this.anims.generateFrameNumbers('weedleair', { start: 3, end: 5 }),
@@ -417,20 +462,39 @@ function create ()
         frameRate: 20
     });
 
-    //  Input Events
-    cursors = this.input.keyboard.createCursorKeys();
-    
-    bombs = this.physics.add.group();
+    //geodude animation
+    this.anims.create({
+        key: 'geodudeleft',
+        frames: [ { key: 'geodude', frame: 0 } ],
+        frameRate: 20
+    });
+    this.anims.create({
+        key: 'geoduderight',
+        frames: [ { key: 'geodude', frame: 1 } ],
+        frameRate: 20
+    });
 
-    //error output
-    errText = this.add.text(16, 16, '', { fontSize: '32px', fill: '#000' });
+    //water animation
+    this.anims.create({
+        key: 'watermove',
+        frames: this.anims.generateFrameNumbers('water', { start: 0, end: 1 }),
+        frameRate: 5,
+        repeat: -1
+    });
+
+    //play water animation
+    waters.children.iterate(function (child) {
+        child.anims.play('watermove',true);
+    });
 
     //  Collide the player and the ledges and branches
-    platformCollider = this.physics.add.collider(player, platforms, passLedge, null, this);
+    this.physics.add.collider(player, bottomLedges);
+    ledgeCollider = this.physics.add.collider(player, otherLedges);
     this.physics.add.collider(player, branches, passPlatform, null, this);
 
     //Collide Pidgeys with ledges and branches
-    this.physics.add.collider(pidgeys, platforms);
+    this.physics.add.collider(pidgeys, bottomLedges);
+    this.physics.add.collider(pidgeys, otherLedges);
     this.physics.add.collider(pidgeys, branches);
 
     //destroy any pidgeys that spawn inside a branch
@@ -439,52 +503,150 @@ function create ()
     //Enemies that hit Weedle cause death
     this.physics.add.collider(player, pidgeys, suddenDeath, null, this);
     this.physics.add.collider(player, magikarps, suddenDeath, null, this);
-   
-
-    this.physics.add.collider(bombs, platforms);
-    this.physics.add.collider(pokeballs, platforms);
-    this.physics.add.collider(pokeballs, branches);
-    this.physics.add.collider(pokeballs, waters, replacePokeball, null, this);
-
-
-    //  Checks to see if the player overlaps with any of the collectables, if he does call the collectStar function
-    this.physics.add.overlap(player, pokeballs, collectPokeball, null, this);
-    this.physics.add.overlap(player, berries, collectPokeball, null, this);
-    
-    
+    this.physics.add.collider(player, geodudes, suddenDeath, null, this);
     this.physics.add.overlap(player, waters, suddenDeath, null, this);
 
-    //this.physics.add.collider(player, bombs, hitBomb, null, this);
+    //make sure pokeballs can't fall through ledges
+    this.physics.add.collider(pokeballs, bottomLedges);
+    this.physics.add.collider(pokeballs, otherLedges);
+
+    //  Checks to see if the player overlaps with any of the collectables, if he does call the collectPokeball function
+    this.physics.add.overlap(player, pokeballs, collectPokeball, null, this);
+    this.physics.add.overlap(player, berries, collectPokeball, null, this);
 }
 
 function update ()
 {
+    var correctAnim; //holds the name of the correct player animation for the current circumstances
+    var moved; //true if the player has moved this update
 
+    //stop updating if player dead
     if (gameOver)
     {
         return;
     }
 
-    var correctAnim;
-    var moved;
+    //Set the canvas size to fill the screen if it's small (e.g mobile) allowing for different views
+    if (window.innerHeight > worldHeight)
+    {
+        gameCanvas.height = worldHeight;
+    }
+    else{
+        gameCanvas.height = window.innerHeight;
+    }
+    if (window.innerWidth > maxScreenWidth)
+    {
+        gameCanvas.width = maxScreenWidth;
+    }
+    else
+    {
+        gameCanvas.width = window.innerWidth;
+    }
+    mainCamera.setViewport(0, 0 + initialCanvasHeight - gameCanvas.height ,gameCanvas.width, gameCanvas.height)
 
-    if (player.body.y > 640)
+    //if the game size has changed, scroll it into view
+    if (gameCanvas.height != prevHeight)
+    {
+        gameCanvas.scrollIntoView(true);
+        prevHeight = gameCanvas.height;
+    }
+
+    //Kill weedle if drops off bottom of screen somehow
+    if (player.body.y > worldHeight)
     {
         suddenDeath(player, player);
     }
 
+    //animate pidgeys
+    pidgeys.children.iterate(function (child) {
+        if (child.body.velocity.x > 0)
+        {
+            child.anims.play('pidgeyright',true);
+        } else {
+            child.anims.play('pidgeyleft',true);
+        }
 
+        //check if pidgeys are within range of weedle, if so, swoop down
+        if (Phaser.Math.Distance.Between(player.body.x, player.body.y, child.body.x, child.body.y) < 300)
+        {
+            child.body.setVelocityY((player.body.y - child.body.y) * 2);
+        } else if (Math.abs(child.body.x - player.body.x) < 400 && child.body.velocity.y < 20 && player.body.y > child.body.y) {
+            //if pidgey above weedle, start lowering
+                child.body.velocity.y += 1;
+        } else if (Math.abs(child.body.x - player.body.x) < 500 && ((player.body.velocity.x > 0 && child.body.velocity.x <0 && player.body.x > child.body.x) || (player.body.velocity.x < 0 && child.body.velocity.x > 0 && player.body.x < child.body.x))) {
+            //circle and follow weedle if it's moving
+            child.body.setVelocityX(child.body.velocity.x * -1);
+        } else if (child.body.y>layerHeight) {
+            //otherwise rise back up to the top of the world
+            child.body.velocity.y += -1;
+        }
+
+        // stop pidgey flying off the top of the world
+        if (child.body.y < 40 && child.body.velocity.y < 0)
+        {
+            child.body.setVelocityY(0);
+        }
+
+        //bounce pidgeys off world end
+        if (child.body.x < 0 || child.body.x > worldWidth)
+        {
+            child.body.setVelocityX(child.body.velocity.x * -1);
+        }
+
+    });
+
+    //animate geodude
+    geodudes.children.iterate(function (child) {
+        if (child.body.velocity.x > 0)
+        {
+            child.anims.play('geoduderight',true);
+        } else {
+            child.anims.play('geodudeleft',true);
+        }
+
+        separation = player.body.x - child.body.x;
+        //randomly change direction, unless weedle is in range, then move towards weedle
+        if ((separation > 50 && separation < 200 && child.body.velocity.x < 0) || (separation < -50 && separation > -200 && child.body.velocity.x > 0))
+        {
+            child.body.setVelocityX(child.body.velocity.x * -1);
+        }
+        else if (Math.random()<0.03)
+        {
+            child.body.setVelocityX(child.body.velocity.x * -1);
+        }
+
+        //bounce geodude off world end
+        if ((child.body.x < 0 && child.body.velocity.x < 0) || (child.body.y > worldWidth && child.body.velocity.x > 0))
+        {
+            child.body.setVelocityX(child.body.velocity.x * -1);
+        }
+
+    });
+
+    //Move magikarp
+    magikarps.children.iterate(function (child) {
+        if (child.body.y > worldHeight - 0 && child.body.velocity.y > 0)
+        {
+            child.body.setVelocityY(-10);
+            child.body.setAllowGravity(false);
+        }
+        else if (child.body.y < worldHeight - 30 && child.body.y > worldHeight - 50 && child.body.velocity.y < -9)
+        {
+            child.body.setVelocityY(-(layerHeight + Math.random() * worldHeight));
+            child.body.setAllowGravity(true);
+        }
+    });
+
+    //basic weedle movement. moveLeft, moveRight, etc are set by touch controls on mobile
     if ((cursors.left.isDown || moveLeft) && player.body.x > 0)
     {
         player.setVelocityX(-160);
-
         correctAnim = 'left';
         moved = true;
     }
-    else if ((cursors.right.isDown || moveRight) && player.body.x < WorldWidth)
+    else if ((cursors.right.isDown || moveRight) && player.body.x < worldWidth)
     {
         player.setVelocityX(160);
-
         correctAnim = 'right';
         moved = true;
     }
@@ -499,6 +661,55 @@ function update ()
         correctAnim = 'stand';
     }
 
+    //jump weedle when up key pressed
+    if ((cursors.up.isDown || moveUp) && player.body.touching.down)
+    {
+        player.setVelocityY(-330);
+    }
+
+    //drop from the bottom of branches
+    if ((cursors.down.isDown || moveDown) && player.body.touching.up)
+    {
+        player.setVelocityY(10);
+    }
+
+    //drop down through ledges
+    if (cursors.down.isDown || moveDown)
+    {
+        try {
+            ledgeCollider.destroy();
+            ledgeCollider = null;
+            player.depth = 13;
+        } catch {}
+    } else {
+        if (!ledgeCollider)
+        {
+            ledgeCollider = this.physics.add.collider(player, otherLedges);
+        }
+    }
+
+    //pass through ledges horizontally while jumping or dropping
+    if ((cursors.up.isDown || cursors.down.isDown) || (moveUp || moveDown))
+    {
+        otherLedges.children.iterate(function (child) {
+            if (child.body.y < (worldHeight - layerHeight))
+            {
+                child.body.checkCollision.right = false;
+                child.body.checkCollision.left = false;
+            }
+        });
+        player.depth = 13;
+    }
+    else if (player.body.touching.down || player.body.touching.up)
+    {
+        otherLedges.children.iterate(function (child) {
+            child.body.checkCollision.right = true;
+            child.body.checkCollision.left = true;
+        });
+        player.depth = 6;
+    }
+
+    //set the correct animation for weedle based on what it's doing
     if (player.body.touching.up)
     {
         correctAnim += 'up';
@@ -516,87 +727,32 @@ function update ()
             correctAnim += 'air';
         }
     }
-
     player.anims.play(correctAnim, true);
-
-    waters.children.iterate(function (child) {
-        child.anims.play('watermove',true);
-    });
-
-    //animate pidgeys
-    pidgeys.children.iterate(function (child) {
-        if (child.body.velocity.x > 0)
-        {
-            child.anims.play('pidgeyright',true);
-        } else {
-            child.anims.play('pidgeyleft',true);
-        }
-
-        //check if pidgeys are within range of weedle
-        if (Phaser.Math.Distance.Between(player.body.x, player.body.y,child.body.x, child.body.y) < 300)
-        {
-            child.body.setVelocityY((player.body.y - child.body.y) * 2);
-        }
-
-        //check if pidgeys are above world
-        if (child.body.y < 40 && child.body.velocity.y < 0)
-        {
-            child.body.setVelocityY(0);
-        }
-
-        //bounce pidgeys off world end
-        if (child.body.x < 40 || child.body.y > WorldWidth)
-        {
-            child.body.setVelocityX(child.body.velocity.x * -1);
-        }
-
-    });
-
-    //Move magikarp
-    magikarps.children.iterate(function (child) {
-        if (child.body.y>600)
-        {
-            child.body.setAccelerationY(-560);
-        }
-        else
-        {
-            child.body.setAccelerationY(0);
-        }
-    });
-
-    if ((cursors.up.isDown || moveUp) && player.body.touching.down)
-    {
-        player.setVelocityY(-330);
-    }
-
-    //drop from the bottom of branches
-    if ((cursors.down.isDown || moveDown) && player.body.touching.up)
-    {
-        player.setVelocityY(10);
-    }
-
-    //drop down through ledges
-    if (cursors.down.isDown || moveDown)
-    {
-        player.body.checkCollision.down = false;
-    } else {
-        player.body.checkCollision.down = true;
-    }
-
-
 
     //move the score counter
     scoreText.x = player.x ;
     scoreText.y = player.y -60;
 
+    //destroy any pidgeys stuck inside branches
     try
     {
         initialSpawnCheck.destroy();
-    }
-    catch
-    {
-    }
+    }catch{}
 }
+
+function createGeodude(x, y, leftLimit, rightLimit)
+{
+    newGeodude = geodudes.create(+x, y, 'geodude');
+    newGeodude.body.setAllowGravity(false);
+    newGeodude.setBounce(0);
+    newGeodude.body.setVelocityX(30 + Math.random() *50);
+    if (Math.random > 0.5)
+    {
+        newGeodude.body.setVelocityX(newGeodude.body.velocity.x * -1);
+    }
+    newGeodude.body.setVelocityY(0);
+}
+
 
 function createPidgey(x, y)
 {
@@ -619,27 +775,57 @@ function collectPokeball (player, pokeball)
     updateScore(10);
 }
 
-function createLedge(x, y, length){
+function addLedge(x, layer, length){
+
+    var ledgeNeeded;
+
     for (i=0; i<length; i++)
     {
+        ledgeNeeded = true;
+
         currX = x + i * 30;
+        for (j=currX-29; j<=currX; j++)
+        {
+            if (arrLedges[j+':'+layer])
+            {
+                ledgeNeeded = false;
+            }
+        }
+        if (ledgeNeeded)
+        {
+            arrLedges[currX + ':' + layer] = {'x': currX, 'layer': layer};
+        }
+
+    }
+}
+
+function createLedge(x, y){
+
         //add ledge
-        newLedge = platforms.create(currX, y, 'ledge');
+        if (y > (worldLayers - 1) * layerHeight)
+        {
+            newLedge = bottomLedges.create(x, y, 'ledge');
+    } else {
+            newLedge = otherLedges.create(x, y, 'ledge');
+            //ledgeCount = y;
+        }
+        //ledgeCount = y;
+        //document.getElementById("test_area").innerHTML = ledgeCount;
+
         newLedge.body.checkCollision.down = false;
 
         //add grass
-        backGrasses.create(currX, y-40, 'grass' + Math.round((Math.random()*2) +1));
-        frontGrasses.create(currX, y-20, 'grassfront' + Math.round((Math.random()*2) +1));
+        backGrasses.create(x, y-40, 'grass' + Math.round((Math.random()*2) +1));
+        frontGrasses.create(x, y-20, 'grassfront' + Math.round((Math.random()*2) +1));
 
         //add soil background
-        soils.create(currX, y+300, 'soil');
+        soils.create(x, y+260, 'soil');
 
         //random chance to add pokeball
-        if (Math.random() < 0.03)
+        if (Math.random() < 0.04 * (worldLayers - y/layerHeight))
         {
-            pokeballs.create(currX, y - 40, 'pokeball');
+            pokeballs.create(x, y - 40, 'pokeball');
         }
-    }
 }
 
 function replacePokeball (pokeball, water)
@@ -669,10 +855,13 @@ function suddenDeath (player, enemy)
 
     gameOver = true;
 
-    gameOverScreen = this.add.image(mainCamera.scrollX + 400, mainCamera.scrollY+200, 'gameover');
+    var gameOverScreen = this.add.image(mainCamera.scrollX + 400, mainCamera.scrollY+200, 'gameover');
     gameOverScreen.depth = 100000;
-    finalScore = this.add.text(50, 50, 'Score: ' + score, { fontSize: '48px', fill: '#FFF' });
-    finalScore.depth = 100001;
+    if ((document.getElementById('name_field').value != '') && (document.getElementById('email_field').value != ''))
+    {
+        document.getElementById('go_button').click();
+    }
+
 }
 
 function destroyFirst(toDestroy, Other) {
@@ -681,40 +870,58 @@ function destroyFirst(toDestroy, Other) {
 
 function handleTouch(event){
     //establish mobile controls
-    var touchRadius = 60;
+    var touchRadius = layerHeight;
+    var yOffset = -40;
+    var xOffset = 40;
+    var elem = document.querySelector('canvas');
+    var offsetY = getElemDistance( elem );
+
     event.preventDefault();
 
     var touchX = event.changedTouches[0].pageX - gameCanvas.offsetLeft + mainCamera.scrollX;
-    var touchY = event.changedTouches[0].pageY - gameCanvas.offsetTop + mainCamera.scrollY;
+    var touchY = event.changedTouches[0].pageY - offsetY - 50 + mainCamera.scrollY;
 
     
-    if (touchX > player.body.x + touchRadius)
+    if (touchX > player.body.x + xOffset + touchRadius)
     {
         moveRight = true;
     } else {
         moveRight = false;
     }
 
-    if (touchX < player.body.x - touchRadius)
+    if (touchX < player.body.x + xOffset - touchRadius)
     {
         moveLeft = true;
     } else {
         moveLeft = false;
     }
 
-    if (touchY > player.body.y + touchRadius)
+    if (touchY > player.body.y + yOffset + touchRadius)
     {
         moveDown = true;
     } else {
         moveDown = false;
     }
 
-    if (touchY < player.body.y - touchRadius)
+    if (touchY < player.body.y + yOffset - touchRadius)
     {
         moveUp = true;
     } else {
         moveUp = false;
     }
+
+}
+
+// Get an element's distance from the top of the page
+function getElemDistance( elem ) {
+    var location = 0;
+    if (elem.offsetParent) {
+        do {
+            location += elem.offsetTop;
+            elem = elem.offsetParent;
+        } while (elem);
+    }
+    return location >= 0 ? location : 0;
 }
 
 function handleEnd(){
@@ -773,29 +980,6 @@ function passPlatform (player, platform)
     }
 }
 
-function passLedge (player, platform)
-{
-    try 
-    {
-        if ((player.body.touching.right && (cursors.right.isDown || moveRight)) || (player.body.touching.left && (cursors.left.isDown || moveLeft)))
-        {
-            player.body.setVelocityY(-100);
-        }
-        if ((cursors.up.isDown || cursors.down.isDown) || (moveUp || moveDown))
-        {
-            player.body.checkCollision.right = false;
-            player.body.checkCollision.left = false;
-        }
-        else{
-            player.body.checkCollision.right = true;
-            player.body.checkCollision.left = true;
-        }
-    } catch {
-
-    }
-    
-}
-
 function getBiome ()
 {
     //Biomes are 1-grassland, 2-forest. 3-islands, 4-hills
@@ -806,16 +990,16 @@ function getBiome ()
         case 1: //Grassland
             biomeName = 'Grassland';
 
-            treeHeight = 4;
-            lowestBranch = 6;
+            treeHeight = 6;
+            lowestBranch = 7;
             branchLength = 5;
-            treeDensity = 3;
+            treeDensity = 1;
 
-            ledgeHigh = 7;
+            ledgeHigh = 8;
             ledgeLow = 9;
-            ledgeLength = 30;
-            ledgeDensity = 2;
-            rampFreq = 2;
+            ledgeLength = 10;
+            ledgeDensity = 1;
+            solidGround = true;
 
             biomeSky = 'skygrassland';
             break;
@@ -825,13 +1009,13 @@ function getBiome ()
             treeHeight = 0;
             lowestBranch = 5;
             branchLength = 5;
-            treeDensity = 10;
+            treeDensity = 6;
 
-            ledgeHigh = 6;
+            ledgeHigh = 7;
             ledgeLow = 9;
-            ledgeLength = 20;
-            ledgeDensity = 3;
-            rampFreq = 1;
+            ledgeLength = 10;
+            ledgeDensity = 4;
+            solidGround = true;
 
             biomeSky = 'skyforest';
             break;
@@ -843,11 +1027,11 @@ function getBiome ()
             branchLength = 0;
             treeDensity = 0;
 
-            ledgeHigh = 4;
+            ledgeHigh = 5;
             ledgeLow = 9;
-            ledgeLength = 5;
-            ledgeDensity = 5;
-            rampFreq = 5;
+            ledgeLength = 4;
+            ledgeDensity = 3;
+            solidGround = false;
 
             biomeSky = 'skyislands';
             break;
@@ -862,8 +1046,8 @@ function getBiome ()
             ledgeHigh = 3;
             ledgeLow = 9;
             ledgeLength = 5;
-            ledgeDensity = 7;
-            rampFreq = 5;
+            ledgeDensity = 4;
+            solidGround = true;
 
             biomeSky = 'skyhills';
             break;
@@ -877,4 +1061,10 @@ function updateScore(change)
     score += change;
     scoreText.setText(score);
     document.getElementById("score_field").value = score;
+}
+
+function setDepth(group, depth) {
+    group.children.iterate(function (child) {
+        child.depth = depth;
+    });
 }
