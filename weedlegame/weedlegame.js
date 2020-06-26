@@ -27,6 +27,8 @@ var geodudes;
 
 //image and terrain groups
 var skies;
+var backgrounds;
+var sun;
 var bottomLedges;
 var otherLedges;
 var arrLedges = {};
@@ -74,6 +76,11 @@ function preload ()
     this.load.image('skyislands', 'weedlegame/assets/skyislands.png');
     this.load.image('skyforest', 'weedlegame/assets/skyforest.png');
     this.load.image('skyhills', 'weedlegame/assets/skyhills.png');
+    this.load.image('backgroundForest', 'weedlegame/assets/backgroundforest.png');
+    this.load.image('backgroundGrassland', 'weedlegame/assets/backgroundgrassland.png');
+    this.load.image('backgroundHills', 'weedlegame/assets/backgroundhills.png');
+    this.load.image('backgroundIslands', 'weedlegame/assets/backgroundislands.png');
+    this.load.image('sun', 'weedlegame/assets/sun.png');
     this.load.image('ground', 'assets/platform.png');
     this.load.image('ledge', 'weedlegame/assets/ledge.png');
     this.load.image('grass1', 'weedlegame/assets/grass1.png');
@@ -166,6 +173,7 @@ function create ()
     soils = this.add.group();
     waters = this.physics.add.staticGroup();
     skies = this.add.group();
+    backgrounds = this.add.group();
     branches = this.physics.add.staticGroup();
     Leaves = this.physics.add.staticGroup();
     trunks = this.physics.add.staticGroup();
@@ -190,7 +198,7 @@ function create ()
     //Define sections of the world as unique biomes
     while (biomeStart < worldWidth)
     {
-        biomeLength = minBiomeLength + Math.round(Math.random() * worldWidth / 4);
+        biomeLength = minBiomeLength + 400 * Math.round(Math.random() * 10);
         Biome = getBiome();
 
         //create one ledge which runs across the bottom of the screen, except in Islands biomes
@@ -283,7 +291,9 @@ function create ()
         //  Add the sky to the background
         for (i=0; i<biomeLength/400; i++)
         {
-            skies.create(biomeStart + 400 * i, 300, biomeSky);
+            skies.create(biomeStart -1000 + 400 * i, 300, biomeSky);
+
+            backgrounds.create(biomeStart -100 + 400 * i, 300, 'background' + Biome);
 
             //add pidgeys in the clear skies
             if (Biome!='Forest' && Math.random()<0.2)
@@ -301,6 +311,10 @@ function create ()
         biomeStart = biomeStart + biomeLength;
     }
 
+    //Add the sun
+    sun = this.physics.add.image(mainCamera.centreX, worldHeight/2, 'sun');
+    sun.body.setAllowGravity(false);
+
     //check for any impossible gaps between islands
     var nextLedge = {};
     var jumpDistance;
@@ -311,7 +325,6 @@ function create ()
         ledgeLayer = arrLedges[key]['layer'];
 
         //search ahead from the current ledge to find the next reachable one
-
         currentX = ledgeX + 1;
         ledgeFound = false
 
@@ -362,36 +375,38 @@ function create ()
 
     //Set the depth for each set of objects
     setDepth(skies,0);
-    setDepth(trunks,1);
-    setDepth(soils,2);
-    setDepth(otherLedges,3);
-    setDepth(bottomLedges,4);
-    setDepth(backGrasses,5);
+    sun.depth = 1;
+    setDepth(backgrounds,2);
+    setDepth(trunks,3);
+    setDepth(soils,4);
+    setDepth(otherLedges,5);
+    setDepth(bottomLedges,6);
+    setDepth(backGrasses,7);
 
     //insert the player into this layer
-    player.depth = 6;
+    player.depth = 8;
 
     // land enemies here
-    setDepth(geodudes,7);
-    setDepth(pidgeys,8);
+    setDepth(geodudes,9);
+    setDepth(pidgeys,10);
 
     //Collectables here
-    setDepth(pokeballs,9);
+    setDepth(pokeballs,11);
  
-    setDepth(branches,10);
-    setDepth(frontGrasses,11);
-    setDepth(berries,12);
+    setDepth(branches,12);
+    setDepth(frontGrasses,13);
+    setDepth(berries,14);
 
-    //player will be at depth 13 when jumping/dropping
+    //player will be at depth 15 when jumping/dropping
 
-    setDepth(Leaves,14);
+    setDepth(Leaves,16);
 
-    setDepth(magikarps,15);
+    setDepth(magikarps,17);
 
-    setDepth(waters,16);
+    setDepth(waters,18);
 
     //text objects on top
-    scoreText.depth = 17;
+    scoreText.depth = 19;
 
     //camera follows player
     mainCamera.startFollow(player);
@@ -679,7 +694,7 @@ function update ()
         try {
             ledgeCollider.destroy();
             ledgeCollider = null;
-            player.depth = 13;
+            player.depth = 15;
         } catch {}
     } else {
         if (!ledgeCollider)
@@ -698,7 +713,7 @@ function update ()
                 child.body.checkCollision.left = false;
             }
         });
-        player.depth = 13;
+        player.depth = 15;
     }
     else if (player.body.touching.down || player.body.touching.up)
     {
@@ -706,7 +721,7 @@ function update ()
             child.body.checkCollision.right = true;
             child.body.checkCollision.left = true;
         });
-        player.depth = 6;
+        player.depth = 8;
     }
 
     //set the correct animation for weedle based on what it's doing
@@ -732,6 +747,14 @@ function update ()
     //move the score counter
     scoreText.x = player.x ;
     scoreText.y = player.y -60;
+
+    //move the sun
+    if (player.x > mainCamera.centerX && player.x < worldWidth - mainCamera.centerX)
+    {
+        sun.x = player.x;
+    } else {
+        sun.x = mainCamera.scrollX + mainCamera.centerX
+    }
 
     //destroy any pidgeys stuck inside branches
     try
