@@ -68,8 +68,8 @@ get_header("games");
                     get_currentuserinfo();
                     if ($player_email == '') { $player_email = $current_user->user_email; }
                     if ($player_name == '') { $player_name =  $current_user->display_name; }
-                    echo '<div id="game_div">
-                    <script type="text/javascript" src="//gopins.co.uk/weedlegame/weedlegame2_6test2.js"></script>
+                    echo '<div id="game_div" style="height:800px">
+                    <script type="text/javascript" src="//gopins.co.uk/weedlegame/weedlegame.js"></script>
                     </div>';
 
                     echo '<br><div id="form">';

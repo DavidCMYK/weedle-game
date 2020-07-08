@@ -1,14 +1,21 @@
 var config = {
     type: Phaser.AUTO,
-    width: 1400,
+    width: 1200,
     height: 600,
-    parent: 'game_div',
+    //parent: 'game_div',
     physics: {
         default: 'arcade',
         arcade: {
             gravity: { y: 500 },
             debug: false
         }
+    },
+    scale: {
+        mode: Phaser.Scale.FIT,
+        parent: 'game_div',
+        autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
+        width: 1200,
+        height: 600
     },
     scene: {
         preload: preload,
@@ -42,7 +49,6 @@ var berries;
 
 //game object groups
 var pokeballs;
-var bombs;
 
 //game mechanics
 var cursors;
@@ -56,6 +62,8 @@ var prevHeight;
 var mainCamera;
 var ledgeCollider;
 var initialSpawnCheck;
+var maxButton;
+var gameOverScreen;
 
 //dials
 var worldWidth = 20000;
@@ -72,6 +80,7 @@ var biomeSky;
 
 function preload ()
 {
+    console.log('preload');
     this.load.image('skygrassland', 'weedlegame/assets/skygrassland.png');
     this.load.image('skyislands', 'weedlegame/assets/skyislands.png');
     this.load.image('skyforest', 'weedlegame/assets/skyforest.png');
@@ -105,50 +114,36 @@ function preload ()
     this.load.spritesheet('water', 'weedlegame/assets/water.png', { frameWidth: 40, frameHeight: 20 });
 
     this.load.image('pokeball', 'weedlegame/assets/pokeball.png');
-    this.load.image('bomb', 'assets/bomb.png');
-    this.load.spritesheet('weedle', 'weedlegame/assets/weedle.png', { frameWidth: 64, frameHeight: 32 });
-    this.load.spritesheet('weedleair', 'weedlegame/assets/weedleair.png', { frameWidth: 32, frameHeight: 67 });
-    this.load.spritesheet('weedletall', 'weedlegame/assets/weedletall.png', { frameWidth: 32, frameHeight: 49 });
+    this.load.spritesheet('weedle', 'weedlegame/assets/weedle.png', { frameWidth: 64, frameHeight: 50 });
+    this.load.spritesheet('weedleair', 'weedlegame/assets/weedleair.png', { frameWidth: 32, frameHeight: 50 });
+    this.load.spritesheet('weedletall', 'weedlegame/assets/weedletall.png', { frameWidth: 32, frameHeight: 50 });
 
     this.load.spritesheet('pidgey', 'weedlegame/assets/pidgey.png', { frameWidth:73, frameHeight: 55 });
     this.load.spritesheet('magikarp', 'weedlegame/assets/magikarp.png', { frameWidth:93, frameHeight: 77 });
     this.load.spritesheet('geodude', 'weedlegame/assets/geodude.png', { frameWidth:85, frameHeight: 32 });
 
+    this.load.spritesheet('maxmin', 'weedlegame/assets/maxmin.png', { frameWidth:64, frameHeight: 64 });
     this.load.image('gameover', 'weedlegame/assets/gameover.png');
-
 }
 
 function create ()
 {
+    console.log('create');
+    gameOver =false;
+    score = 0;
     //game canvas object
     gameCanvas = document.getElementsByTagName("canvas")[0];
 
     initialCanvasHeight = gameCanvas.height;
-
-    //set canvas to fill screen 
-    if (window.innerHeight > worldHeight)
-    {
-        gameCanvas.height = worldHeight;
-    }
-    else{
-        gameCanvas.height = window.innerHeight;
-    }
-    if (window.innerWidth > maxScreenWidth)
-    {
-        gameCanvas.width = maxScreenWidth;
-    }
-    else
-    {
-        gameCanvas.width = window.innerWidth;
-    }
-    gameCanvas.scrollIntoView(true);
-    prevHeight = gameCanvas.height;
 
     //event listeners for touch controls
     gameCanvas.addEventListener("touchstart", handleTouch, false);
     gameCanvas.addEventListener("touchmove", handleTouch, false);
     gameCanvas.addEventListener("touchend", handleEnd, false);
     gameCanvas.addEventListener("touchcancel", handleEnd, false);
+
+    //set the game_div height to something sensible
+    document.getElementById("game_div").style.height = (gameCanvas.height + 50) + "px";
     
     //  Keyboard input Events
     cursors = this.input.keyboard.createCursorKeys();
@@ -189,6 +184,7 @@ function create ()
     var prevX = 0;
     var prev1Y = 0;
     var prev2Y = 0;
+    arrLedges = []; //empty the ledge array in case of a restart
 
     //create a starting ledge
     addLedge(15,7,3);
@@ -212,7 +208,7 @@ function create ()
             for (i=0; i<biomeLength/30; i++)
             {
                 waterX = biomeStart + i*30;
-                waters.create(waterX, worldHeight-10, 'water');
+                waters.create(waterX, worldHeight-5, 'water');
                 //randomly spawn magikarp
                 if (i>3 && Math.random() < 0.05)
                 {
@@ -408,6 +404,15 @@ function create ()
     //text objects on top
     scoreText.depth = 19;
 
+    //full screen button
+    maxButton = this.add.sprite(50, 50, 'maxmin', 0).setOrigin(1, 0).setInteractive();
+    maxButton.depth = 20;
+
+    //Game Over/ reset button
+    gameOverScreen = this.add.image(-1000,-1000, 'gameover').setInteractive();
+    gameOverScreen.depth = -1;
+
+
     //camera follows player
     mainCamera.startFollow(player);
     
@@ -497,6 +502,41 @@ function create ()
         repeat: -1
     });
 
+    //frames for maxmin button
+    this.anims.create({
+        key: 'max',
+        frames: [ { key: 'maxmin', frame: 0 } ],
+        frameRate: 5
+    });
+    this.anims.create({
+        key: 'min',
+        frames: [ { key: 'maxmin', frame: 1 } ],
+        frameRate: 5
+    });
+
+    // set behaviour of max/min button
+    maxButton.on('pointerup', function (pointer) {
+
+        if (this.scale.isFullscreen)
+        {
+            maxButton.anims.play('max',true);
+
+            this.scale.stopFullscreen();
+        }
+        else
+        {
+            maxButton.anims.play('min',true);
+
+            this.scale.startFullscreen();
+        }
+    }, this);
+
+    // set behaviour of reset button
+    gameOverScreen.on('pointerup', function (pointer) {
+        console.log('reset clicked')
+        this.scene.restart();
+    }, this);
+
     //play water animation
     waters.children.iterate(function (child) {
         child.anims.play('watermove',true);
@@ -541,30 +581,8 @@ function update ()
         return;
     }
 
-    //Set the canvas size to fill the screen if it's small (e.g mobile) allowing for different views
-    if (window.innerHeight > worldHeight)
-    {
-        gameCanvas.height = worldHeight;
-    }
-    else{
-        gameCanvas.height = window.innerHeight;
-    }
-    if (window.innerWidth > maxScreenWidth)
-    {
-        gameCanvas.width = maxScreenWidth;
-    }
-    else
-    {
-        gameCanvas.width = window.innerWidth;
-    }
-    mainCamera.setViewport(0, 0 + initialCanvasHeight - gameCanvas.height ,gameCanvas.width, gameCanvas.height)
-
-    //if the game size has changed, scroll it into view
-    if (gameCanvas.height != prevHeight)
-    {
-        gameCanvas.scrollIntoView(true);
-        prevHeight = gameCanvas.height;
-    }
+    //make sure the game div is only as large as necessary
+    document.getElementById("game_div").style.height = (game.scale.displaySize.height + 10) + "px";
 
     //Kill weedle if drops off bottom of screen somehow
     if (player.body.y > worldHeight)
@@ -756,6 +774,8 @@ function update ()
         sun.x = mainCamera.scrollX + mainCamera.centerX
     }
 
+    maxButton.x = mainCamera.scrollX + 100;
+
     //destroy any pidgeys stuck inside branches
     try
     {
@@ -838,8 +858,8 @@ function createLedge(x, y){
         newLedge.body.checkCollision.down = false;
 
         //add grass
-        backGrasses.create(x, y-40, 'grass' + Math.round((Math.random()*2) +1));
-        frontGrasses.create(x, y-20, 'grassfront' + Math.round((Math.random()*2) +1));
+        backGrasses.create(x, y-30, 'grass' + Math.round((Math.random()*2) +1));
+        frontGrasses.create(x, y-10, 'grassfront' + Math.round((Math.random()*2) +1));
 
         //add soil background
         soils.create(x, y+260, 'soil');
@@ -857,33 +877,23 @@ function replacePokeball (pokeball, water)
 
 }
 
-function hitBomb (player, bomb)
-{
-    this.physics.pause();
-
-    player.setTint(0xff0000);
-
-    player.anims.play('turn');
-
-    gameOver = true;
-}
-
 function suddenDeath (player, enemy)
 {
     this.physics.pause();
 
     player.setTint(0xff0000);
 
-    player.anims.play('turn');
+    player.anims.play('standair');
+
+    gameOverScreen.setPosition(mainCamera.scrollX + 600, mainCamera.scrollY+300);
+    gameOverScreen.depth = 25;
+
+    if ( (document.getElementById('name_field').value != '') && (document.getElementById('email_field').value != '') && gameOver == false )
+    {
+        sendScore();
+    }
 
     gameOver = true;
-
-    var gameOverScreen = this.add.image(mainCamera.scrollX + 400, mainCamera.scrollY+200, 'gameover');
-    gameOverScreen.depth = 100000;
-    if ((document.getElementById('name_field').value != '') && (document.getElementById('email_field').value != ''))
-    {
-        document.getElementById('go_button').click();
-    }
 
 }
 
@@ -894,17 +904,19 @@ function destroyFirst(toDestroy, Other) {
 function handleTouch(event){
     //establish mobile controls
     var touchRadius = layerHeight;
-    var yOffset = -40;
-    var xOffset = 40;
+    var yOffset = -0;
+    var xOffset = 0;
     var elem = document.querySelector('canvas');
-    var offsetY = getElemDistance( elem );
+    var heightMultiplier = elem.height/game.scale.displaySize.height;
+    var widthMultiplier = elem.width/game.scale.displaySize.width;
+    var vpOffset = elem.getBoundingClientRect();
+    var topPos = vpOffset.top;
 
     event.preventDefault();
 
-    var touchX = event.changedTouches[0].pageX - gameCanvas.offsetLeft + mainCamera.scrollX;
-    var touchY = event.changedTouches[0].pageY - offsetY - 50 + mainCamera.scrollY;
+    var touchX = (event.changedTouches[0].pageX - gameCanvas.offsetLeft) * widthMultiplier + mainCamera.scrollX;
+    var touchY = (event.changedTouches[0].pageY - topPos) * heightMultiplier;
 
-    
     if (touchX > player.body.x + xOffset + touchRadius)
     {
         moveRight = true;
@@ -932,7 +944,6 @@ function handleTouch(event){
     } else {
         moveUp = false;
     }
-
 }
 
 // Get an element's distance from the top of the page
@@ -957,20 +968,6 @@ function handleEnd(){
         moveRight = false;
 }
 
-function pointAt(hunter, prey)
-{
-    //vel = hunter.body.velocity;
-    //xDirection = hunter.body.x - prey.body.x;
-    //yDirection = hunter.body.y - prey.body.y;
-
-    //hunter.body.setVelocityX(hunter.body.x - prey.body.x);
-    //hunter.body/setVelocityY(hunter.body.y - prey.body.y);
-
-    //hunter.body.velocity = vel;
-
-    //return 1;
-}
-
 function bounceOff(moving, stationary)
 {
     if (moving.body.touching.up || moving.body.touching.down)
@@ -983,7 +980,6 @@ function bounceOff(moving, stationary)
     }
 
 }
-
 
 function passPlatform (player, platform)
 {
@@ -1089,5 +1085,28 @@ function updateScore(change)
 function setDepth(group, depth) {
     group.children.iterate(function (child) {
         child.depth = depth;
+    });
+}
+
+//testing jQuery for scores:
+function sendScore() {
+
+    var name = document.getElementById('name_field').value;
+    var email = document.getElementById('email_field').value;
+
+    jQuery.ajax({
+        type: "POST",
+        url: '//gopins.co.uk/games/send-score.php',
+        dataType: 'json',
+        data: {player_score: score, player_name: name, player_email: email},
+    
+        success: function (obj, textstatus) {
+                          console.log('Success: ' + obj.error);
+                },
+
+        error: function (obj, textStatus, errorThrown) {
+            console.warn(obj.responseText)
+            console.log('Error: ' + obj.errror + ' | ' + textStatus + ' | ' + errorThrown);
+        }
     });
 }

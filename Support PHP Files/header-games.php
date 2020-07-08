@@ -15,9 +15,10 @@ $header_classes = apply_filters( 'nv_header_classes', 'header' );
 
 <head>
 	<meta charset="<?php bloginfo( 'charset' ); ?>">
-	<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1">
 	<link rel="profile" href="http://gmpg.org/xfn/11">
-	<script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+	<script src="//gopins.co.uk/games/phaser/dist/phaser.js"></script>
+	<script src="//gopins.co.uk/games/jquery-3.5.1.min"></script>
 	<?php if ( is_singular() && pings_open( get_queried_object() ) ) : ?>
 		<link rel="pingback" href="<?php bloginfo( 'pingback_url' ); ?>">
 	<?php endif; ?>
